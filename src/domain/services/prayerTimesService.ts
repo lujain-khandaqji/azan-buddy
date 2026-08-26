@@ -118,6 +118,25 @@ export function selectNextPrayer(times: PrayerTimes, now: Date): Prayer | null {
   return null;
 }
 
+/**
+ * Pure, synchronous complement to selectNextPrayer: returns the most recent
+ * prayer whose scheduled time has already started (or null if none of today's
+ * prayers have started yet). This is what the "I prayed" button targets — the
+ * prayer a person would plausibly be confirming right now, never the next
+ * (not-yet-started) one.
+ */
+export function selectCurrentPrayer(times: PrayerTimes, now: Date): Prayer | null {
+  let current: Prayer | null = null;
+  for (const name of PRAYER_NAMES) {
+    const time = times[name];
+    if (time.getTime() > now.getTime()) {
+      break;
+    }
+    current = { name, time };
+  }
+  return current;
+}
+
 export async function getNextPrayer(now: Date): Promise<Prayer | null> {
   const times = await getPrayerTimes(DEFAULT_CITY, now, DEFAULT_METHOD);
   return selectNextPrayer(times, now);
