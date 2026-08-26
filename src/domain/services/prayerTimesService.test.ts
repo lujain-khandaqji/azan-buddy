@@ -4,6 +4,7 @@ import {
   getTimeUntil,
   selectNextPrayer,
   selectCurrentPrayer,
+  getWindowCloseTime,
   PrayerTimes,
   Prayer,
 } from './prayerTimesService';
@@ -294,6 +295,44 @@ describe('selectCurrentPrayer', () => {
   it('performs no I/O — it is a plain synchronous function, not a Promise', () => {
     const now = new Date(2026, 7, 24, 5, 0);
     const result = selectCurrentPrayer(times, now);
+    expect(result).not.toBeInstanceOf(Promise);
+  });
+});
+
+describe('getWindowCloseTime', () => {
+  // Pure, synchronous lookup of when a prayer's confirmation window closes —
+  // feeds directly into prayerLogService.computeStatus's windowCloseTime param.
+  const times: PrayerTimes = {
+    Fajr: new Date(2026, 7, 24, 4, 32),
+    Dhuhr: new Date(2026, 7, 24, 12, 22),
+    Asr: new Date(2026, 7, 24, 15, 46),
+    Maghrib: new Date(2026, 7, 24, 18, 45),
+    Isha: new Date(2026, 7, 24, 20, 11),
+  };
+  const tomorrowFajr = new Date(2026, 7, 25, 4, 33);
+
+  it("returns Dhuhr's time as Fajr's window close", () => {
+    expect(getWindowCloseTime('Fajr', times, tomorrowFajr)).toEqual(times.Dhuhr);
+  });
+
+  it("returns Asr's time as Dhuhr's window close", () => {
+    expect(getWindowCloseTime('Dhuhr', times, tomorrowFajr)).toEqual(times.Asr);
+  });
+
+  it("returns Maghrib's time as Asr's window close", () => {
+    expect(getWindowCloseTime('Asr', times, tomorrowFajr)).toEqual(times.Maghrib);
+  });
+
+  it("returns Isha's time as Maghrib's window close", () => {
+    expect(getWindowCloseTime('Maghrib', times, tomorrowFajr)).toEqual(times.Isha);
+  });
+
+  it("returns tomorrow's Fajr as Isha's window close (there is no next prayer today)", () => {
+    expect(getWindowCloseTime('Isha', times, tomorrowFajr)).toEqual(tomorrowFajr);
+  });
+
+  it('performs no I/O — it is a plain synchronous function, not a Promise', () => {
+    const result = getWindowCloseTime('Fajr', times, tomorrowFajr);
     expect(result).not.toBeInstanceOf(Promise);
   });
 });

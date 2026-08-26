@@ -110,3 +110,31 @@ export async function getHistory(range: DateRange): Promise<PrayerLogEntry[]> {
 
   return rows.map(toEntry);
 }
+
+const ON_TIME_GRACE_MS = 30 * 60 * 1000;
+
+export type PrayerLogStatus = 'on_time' | 'late' | 'qada' | 'missed' | 'not_yet';
+
+/**
+ * Pure, synchronous status derivation (Day 4). Only 'on_time'/'late'/'qada' are
+ * ever persisted to completion_type — 'missed' and 'not_yet' are never written,
+ * only computed live from confirmedAt/now, matching the SPEC principle that a
+ * prayer's status is always correct whenever it's read, with no background job
+ * needed to mark something missed.
+ */
+export function computeStatus(
+  azanTime: Date,
+  windowCloseTime: Date,
+  confirmedAt: Date | null,
+  now: Date
+): PrayerLogStatus {
+  if (confirmedAt) {
+    if (confirmedAt.getTime() >= windowCloseTime.getTime()) {
+      return 'qada';
+    }
+    const msAfterAzan = confirmedAt.getTime() - azanTime.getTime();
+    return msAfterAzan <= ON_TIME_GRACE_MS ? 'on_time' : 'late';
+  }
+
+  return now.getTime() >= windowCloseTime.getTime() ? 'missed' : 'not_yet';
+}

@@ -137,6 +137,18 @@ export function selectCurrentPrayer(times: PrayerTimes, now: Date): Prayer | nul
   return current;
 }
 
+/**
+ * Pure, synchronous lookup of when a prayer's confirmation window closes — the
+ * next prayer's scheduled time, or tomorrow's Fajr for Isha (there is no "next"
+ * prayer within today's PrayerTimes). Feeds directly into
+ * prayerLogService.computeStatus's windowCloseTime parameter.
+ */
+export function getWindowCloseTime(prayerName: PrayerName, times: PrayerTimes, tomorrowFajr: Date): Date {
+  const index = PRAYER_NAMES.indexOf(prayerName);
+  const nextName = PRAYER_NAMES[index + 1];
+  return nextName ? times[nextName] : tomorrowFajr;
+}
+
 export async function getNextPrayer(now: Date): Promise<Prayer | null> {
   const times = await getPrayerTimes(DEFAULT_CITY, now, DEFAULT_METHOD);
   return selectNextPrayer(times, now);

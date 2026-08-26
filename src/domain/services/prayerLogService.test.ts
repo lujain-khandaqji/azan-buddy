@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-import { logPrayer, getHistory } from './prayerLogService';
+import { logPrayer, getHistory, computeStatus } from './prayerLogService';
 
 // expo-sqlite is a native module and can't run inside Jest, so it's mocked with a
 // small in-memory fake that implements the same insert/select contract the service
@@ -102,5 +102,50 @@ describe('prayerLogService', () => {
 
     const history = await getHistory({ startDateISO: '2026-08-26', endDateISO: '2026-08-26' });
     expect(history).toHaveLength(1);
+  });
+});
+
+describe('computeStatus', () => {
+  // Pure, synchronous, no I/O — this is Day 4's status derivation, not persisted
+  // anywhere (matches the SPEC principle that only on_time/late/qada ever get
+  // written to completion_type; "missed" and "not_yet" are always computed live).
+  // azanTime stands in for a prayer's scheduled start (e.g. Dhuhr); windowCloseTime
+  // stands in for when its window closes (e.g. Asr's start).
+  const azanTime = new Date(2026, 7, 24, 12, 22);
+  const windowCloseTime = new Date(2026, 7, 24, 15, 46);
+
+  it('returns on_time when confirmed within 30 minutes of azan', () => {
+    const confirmedAt = new Date(2026, 7, 24, 12, 37); // 15 min after azan
+    expect(computeStatus(azanTime, windowCloseTime, confirmedAt, confirmedAt)).toBe('on_time');
+  });
+
+  it('returns on_time when confirmed at exactly 30 minutes after azan (boundary is inclusive)', () => {
+    const confirmedAt = new Date(2026, 7, 24, 12, 52); // exactly 30 min after azan
+    expect(computeStatus(azanTime, windowCloseTime, confirmedAt, confirmedAt)).toBe('on_time');
+  });
+
+  it('returns late when confirmed more than 30 minutes after azan but before window close', () => {
+    const confirmedAt = new Date(2026, 7, 24, 13, 7); // 45 min after azan, well before window close
+    expect(computeStatus(azanTime, windowCloseTime, confirmedAt, confirmedAt)).toBe('late');
+  });
+
+  it('returns qada when confirmed exactly at window close', () => {
+    const confirmedAt = new Date(windowCloseTime);
+    expect(computeStatus(azanTime, windowCloseTime, confirmedAt, confirmedAt)).toBe('qada');
+  });
+
+  it('returns qada when confirmed after window close', () => {
+    const confirmedAt = new Date(2026, 7, 24, 16, 0); // after window close
+    expect(computeStatus(azanTime, windowCloseTime, confirmedAt, confirmedAt)).toBe('qada');
+  });
+
+  it('returns missed when there is no confirmation and the window has closed', () => {
+    const now = new Date(2026, 7, 24, 16, 0); // after window close
+    expect(computeStatus(azanTime, windowCloseTime, null, now)).toBe('missed');
+  });
+
+  it('returns not_yet when there is no confirmation and the window has not closed yet', () => {
+    const now = new Date(2026, 7, 24, 13, 0); // before window close
+    expect(computeStatus(azanTime, windowCloseTime, null, now)).toBe('not_yet');
   });
 });

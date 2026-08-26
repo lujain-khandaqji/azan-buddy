@@ -2,11 +2,20 @@ import React from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PRAYER_NAMES, PrayerName } from '../../domain/services/prayerTimesService';
+import { PrayerLogStatus } from '../../domain/services/prayerLogService';
 import { usePrayerTimesScreen } from '../hooks/usePrayerTimesScreen';
 
 function formatTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
+
+const STATUS_LABELS: Record<PrayerLogStatus, string> = {
+  on_time: 'On time',
+  late: 'Late',
+  qada: 'Qada',
+  missed: 'Missed',
+  not_yet: 'Not yet',
+};
 
 export default function PrayerTimesScreen() {
   const {
@@ -15,6 +24,7 @@ export default function PrayerTimesScreen() {
     countdownLabel,
     cityLabel,
     currentPrayer,
+    statusByPrayer,
     isCurrentPrayerConfirmed,
     confirming,
     confirmError,
@@ -40,6 +50,8 @@ export default function PrayerTimesScreen() {
     );
   }
 
+  const currentStatus = currentPrayer ? statusByPrayer[currentPrayer.name] : undefined;
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Today's Prayers</Text>
@@ -57,31 +69,46 @@ export default function PrayerTimesScreen() {
       </View>
 
       {currentPrayer && (
-        <Pressable
-          onPress={confirmCurrentPrayer}
-          disabled={confirming || isCurrentPrayerConfirmed}
-          style={[styles.confirmButton, isCurrentPrayerConfirmed && styles.confirmButtonDone]}
-        >
-          {confirming ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.confirmButtonText}>
-              {isCurrentPrayerConfirmed ? `${currentPrayer.name} confirmed ✓` : `I prayed ${currentPrayer.name}`}
+        <>
+          {!isCurrentPrayerConfirmed && currentStatus === 'missed' && (
+            <Text style={styles.missedBadge}>
+              {currentPrayer.name} missed — you can still log it as qada
             </Text>
           )}
-        </Pressable>
+          <Pressable
+            onPress={confirmCurrentPrayer}
+            disabled={confirming || isCurrentPrayerConfirmed}
+            style={[styles.confirmButton, isCurrentPrayerConfirmed && styles.confirmButtonDone]}
+          >
+            {confirming ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.confirmButtonText}>
+                {isCurrentPrayerConfirmed && currentStatus
+                  ? `${currentPrayer.name}: ${STATUS_LABELS[currentStatus]}`
+                  : `I prayed ${currentPrayer.name}`}
+              </Text>
+            )}
+          </Pressable>
+        </>
       )}
       {confirmError && <Text style={styles.confirmErrorText}>{confirmError}</Text>}
 
       <View style={styles.list}>
         {PRAYER_NAMES.map((name: PrayerName) => {
           const isNext = nextPrayer?.name === name;
+          const status = statusByPrayer[name];
           return (
             <View key={name} style={[styles.row, isNext && styles.rowHighlighted]}>
               <Text style={[styles.prayerName, isNext && styles.prayerNameHighlighted]}>{name}</Text>
-              <Text style={[styles.prayerTime, isNext && styles.prayerTimeHighlighted]}>
-                {formatTime(prayerTimes[name])}
-              </Text>
+              <View style={styles.rowRight}>
+                {status && status !== 'not_yet' && (
+                  <Text style={[styles.statusBadge, STATUS_BADGE_STYLE[status]]}>{STATUS_LABELS[status]}</Text>
+                )}
+                <Text style={[styles.prayerTime, isNext && styles.prayerTimeHighlighted]}>
+                  {formatTime(prayerTimes[name])}
+                </Text>
+              </View>
             </View>
           );
         })}
@@ -122,6 +149,7 @@ const styles = StyleSheet.create({
   confirmButtonDone: { backgroundColor: '#9ca3af' },
   confirmButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '700' },
   confirmErrorText: { color: '#b00020', fontSize: 13, marginBottom: 12 },
+  missedBadge: { color: '#b00020', fontSize: 13, fontWeight: '600', marginBottom: 8 },
   list: { borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#eee' },
   row: {
     flexDirection: 'row',
@@ -134,8 +162,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   rowHighlighted: { backgroundColor: '#ccfbf1' },
+  rowRight: { flexDirection: 'row', alignItems: 'center' },
   prayerName: { fontSize: 17, color: '#333', fontWeight: '500' },
   prayerNameHighlighted: { color: '#0f766e', fontWeight: '700' },
   prayerTime: { fontSize: 17, color: '#333' },
   prayerTimeHighlighted: { color: '#0f766e', fontWeight: '700' },
+  statusBadge: { fontSize: 12, fontWeight: '700', marginRight: 8 },
+  statusOnTime: { color: '#15803d' },
+  statusLate: { color: '#b45309' },
+  statusQada: { color: '#c2410c' },
+  statusMissed: { color: '#b00020' },
 });
+
+const STATUS_BADGE_STYLE: Record<Exclude<PrayerLogStatus, 'not_yet'>, object> = {
+  on_time: styles.statusOnTime,
+  late: styles.statusLate,
+  qada: styles.statusQada,
+  missed: styles.statusMissed,
+};

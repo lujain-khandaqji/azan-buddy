@@ -3,12 +3,20 @@ import {
   getPrayerTimes,
   selectNextPrayer,
   selectCurrentPrayer,
+  getWindowCloseTime,
+  PRAYER_NAMES,
   PrayerTimes,
   Prayer,
   PrayerName,
 } from '../../domain/services/prayerTimesService';
 import { resolveCurrentCity } from '../../domain/services/locationService';
-import { logPrayer, getHistory, toDateISO } from '../../domain/services/prayerLogService';
+import {
+  logPrayer,
+  getHistory,
+  toDateISO,
+  computeStatus,
+  PrayerLogStatus,
+} from '../../domain/services/prayerLogService';
 
 export interface PrayerTimesScreenState {
   prayerTimes: PrayerTimes | null;
@@ -17,6 +25,7 @@ export interface PrayerTimesScreenState {
   countdownLabel: string | null;
   cityLabel: string | null;
   currentPrayer: Prayer | null;
+  statusByPrayer: Partial<Record<PrayerName, PrayerLogStatus>>;
   isCurrentPrayerConfirmed: boolean;
   confirming: boolean;
   confirmError: string | null;
@@ -43,21 +52,29 @@ function formatCountdown(totalSeconds: number): string {
   return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
+function tomorrowOf(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+}
+
 /**
- * Owns no prayer-selection or confirmation logic of its own — it fetches
- * getPrayerTimes() and today's getHistory() once, then re-derives the next/current
- * prayer and the live countdown every second via the pure, synchronous
- * selectNextPrayer/selectCurrentPrayer. confirmCurrentPrayer just calls logPrayer
- * with whatever selectCurrentPrayer already computed. No Day 4 status
- * classification (on_time/late/qada/missed) happens here.
+ * Owns no prayer-selection, window-boundary, or status-classification logic of
+ * its own — it fetches getPrayerTimes() (today and tomorrow, for Isha's window
+ * close) and today's getHistory() once, then re-derives the next/current prayer,
+ * the live countdown, and EVERY prayer's status every second via the pure,
+ * synchronous selectNextPrayer/selectCurrentPrayer/getWindowCloseTime/
+ * computeStatus. statusByPrayer is the single source of truth for status — the
+ * "I prayed" button just reads statusByPrayer[currentPrayer.name] rather than
+ * computing its own separate status.
  */
 export function usePrayerTimesScreen(): PrayerTimesScreenState {
   const [prayerTimes, setPrayerTimes] = useState<PrayerTimes | null>(null);
+  const [tomorrowFajr, setTomorrowFajr] = useState<Date | null>(null);
   const [nextPrayer, setNextPrayer] = useState<Prayer | null>(null);
   const [currentPrayer, setCurrentPrayer] = useState<Prayer | null>(null);
+  const [statusByPrayer, setStatusByPrayer] = useState<Partial<Record<PrayerName, PrayerLogStatus>>>({});
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
   const [cityLabel, setCityLabel] = useState<string | null>(null);
-  const [confirmedPrayerNames, setConfirmedPrayerNames] = useState<Set<PrayerName>>(new Set());
+  const [confirmedAtByPrayer, setConfirmedAtByPrayer] = useState<Partial<Record<PrayerName, Date>>>({});
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -70,16 +87,25 @@ export function usePrayerTimesScreen(): PrayerTimesScreenState {
       .then(({ city, country }) => {
         if (cancelled) return undefined;
         setCityLabel(city);
-        return getPrayerTimes(city, undefined, undefined, country);
+        return Promise.all([
+          getPrayerTimes(city, undefined, undefined, country),
+          getPrayerTimes(city, tomorrowOf(new Date()), undefined, country),
+        ]);
       })
-      .then(async (times) => {
-        if (cancelled || !times) return;
+      .then(async (result) => {
+        if (cancelled || !result) return;
+        const [times, tomorrowTimes] = result;
         setPrayerTimes(times);
+        setTomorrowFajr(tomorrowTimes.Fajr);
 
         const todayISO = toDateISO(new Date());
         const todaysLog = await getHistory({ startDateISO: todayISO, endDateISO: todayISO });
         if (cancelled) return;
-        setConfirmedPrayerNames(new Set(todaysLog.map((entry) => entry.prayerName)));
+        const byPrayer: Partial<Record<PrayerName, Date>> = {};
+        for (const entry of todaysLog) {
+          byPrayer[entry.prayerName] = entry.confirmedAt;
+        }
+        setConfirmedAtByPrayer(byPrayer);
       })
       .catch((e) => {
         if (!cancelled) setError(describeError(e));
@@ -94,8 +120,9 @@ export function usePrayerTimesScreen(): PrayerTimesScreenState {
   }, []);
 
   useEffect(() => {
-    if (!prayerTimes) return;
+    if (!prayerTimes || !tomorrowFajr) return;
     const times = prayerTimes;
+    const fajrTomorrow = tomorrowFajr;
 
     function tick() {
       const now = new Date();
@@ -103,15 +130,26 @@ export function usePrayerTimesScreen(): PrayerTimesScreenState {
       setNextPrayer(next);
       setSecondsRemaining(next ? secondsUntil(next.time, now) : null);
       setCurrentPrayer(selectCurrentPrayer(times, now));
+
+      const statuses: Partial<Record<PrayerName, PrayerLogStatus>> = {};
+      for (const name of PRAYER_NAMES) {
+        statuses[name] = computeStatus(
+          times[name],
+          getWindowCloseTime(name, times, fajrTomorrow),
+          confirmedAtByPrayer[name] ?? null,
+          now
+        );
+      }
+      setStatusByPrayer(statuses);
     }
 
     tick();
     const intervalId = setInterval(tick, 1000);
     return () => clearInterval(intervalId);
-  }, [prayerTimes]);
+  }, [prayerTimes, tomorrowFajr, confirmedAtByPrayer]);
 
   async function confirmCurrentPrayer() {
-    if (!currentPrayer || confirming || confirmedPrayerNames.has(currentPrayer.name)) {
+    if (!currentPrayer || confirming || confirmedAtByPrayer[currentPrayer.name]) {
       return;
     }
 
@@ -119,8 +157,8 @@ export function usePrayerTimesScreen(): PrayerTimesScreenState {
     setConfirmError(null);
 
     try {
-      await logPrayer(currentPrayer.name, new Date());
-      setConfirmedPrayerNames((prev) => new Set(prev).add(currentPrayer.name));
+      const entry = await logPrayer(currentPrayer.name, new Date());
+      setConfirmedAtByPrayer((prev) => ({ ...prev, [currentPrayer.name]: entry.confirmedAt }));
     } catch (e) {
       setConfirmError(describeError(e, 'Failed to confirm prayer'));
     } finally {
@@ -135,7 +173,8 @@ export function usePrayerTimesScreen(): PrayerTimesScreenState {
     countdownLabel: secondsRemaining !== null ? formatCountdown(secondsRemaining) : null,
     cityLabel,
     currentPrayer,
-    isCurrentPrayerConfirmed: currentPrayer ? confirmedPrayerNames.has(currentPrayer.name) : false,
+    statusByPrayer,
+    isCurrentPrayerConfirmed: currentPrayer ? confirmedAtByPrayer[currentPrayer.name] != null : false,
     confirming,
     confirmError,
     confirmCurrentPrayer,
