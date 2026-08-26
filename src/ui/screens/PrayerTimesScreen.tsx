@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PRAYER_NAMES, PrayerName } from '../../domain/services/prayerTimesService';
 import { usePrayerTimesScreen } from '../hooks/usePrayerTimesScreen';
@@ -9,7 +9,19 @@ function formatTime(date: Date): string {
 }
 
 export default function PrayerTimesScreen() {
-  const { prayerTimes, nextPrayer, countdownLabel, cityLabel, loading, error } = usePrayerTimesScreen();
+  const {
+    prayerTimes,
+    nextPrayer,
+    countdownLabel,
+    cityLabel,
+    currentPrayer,
+    isCurrentPrayerConfirmed,
+    confirming,
+    confirmError,
+    confirmCurrentPrayer,
+    loading,
+    error,
+  } = usePrayerTimesScreen();
 
   if (loading) {
     return (
@@ -43,6 +55,23 @@ export default function PrayerTimesScreen() {
           <Text style={styles.countdownLabel}>No more prayers remaining today</Text>
         )}
       </View>
+
+      {currentPrayer && (
+        <Pressable
+          onPress={confirmCurrentPrayer}
+          disabled={confirming || isCurrentPrayerConfirmed}
+          style={[styles.confirmButton, isCurrentPrayerConfirmed && styles.confirmButtonDone]}
+        >
+          {confirming ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.confirmButtonText}>
+              {isCurrentPrayerConfirmed ? `${currentPrayer.name} confirmed ✓` : `I prayed ${currentPrayer.name}`}
+            </Text>
+          )}
+        </Pressable>
+      )}
+      {confirmError && <Text style={styles.confirmErrorText}>{confirmError}</Text>}
 
       <View style={styles.list}>
         {PRAYER_NAMES.map((name: PrayerName) => {
@@ -83,6 +112,16 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontVariant: ['tabular-nums'],
   },
+  confirmButton: {
+    backgroundColor: '#0f766e',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  confirmButtonDone: { backgroundColor: '#9ca3af' },
+  confirmButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '700' },
+  confirmErrorText: { color: '#b00020', fontSize: 13, marginBottom: 12 },
   list: { borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#eee' },
   row: {
     flexDirection: 'row',

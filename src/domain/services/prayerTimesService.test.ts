@@ -3,6 +3,7 @@ import {
   getNextPrayer,
   getTimeUntil,
   selectNextPrayer,
+  selectCurrentPrayer,
   PrayerTimes,
   Prayer,
 } from './prayerTimesService';
@@ -254,6 +255,45 @@ describe('selectNextPrayer', () => {
   it('performs no I/O — it is a plain synchronous function, not a Promise', () => {
     const now = new Date(2026, 7, 24, 0, 0);
     const result = selectNextPrayer(times, now);
+    expect(result).not.toBeInstanceOf(Promise);
+  });
+});
+
+describe('selectCurrentPrayer', () => {
+  // Pure, synchronous complement to selectNextPrayer: returns the most recent
+  // prayer whose scheduled time has already started, which is what the "I
+  // prayed" button targets — never the next (not-yet-started) prayer.
+  const times: PrayerTimes = {
+    Fajr: new Date(2026, 7, 24, 4, 32),
+    Dhuhr: new Date(2026, 7, 24, 12, 22),
+    Asr: new Date(2026, 7, 24, 15, 46),
+    Maghrib: new Date(2026, 7, 24, 18, 45),
+    Isha: new Date(2026, 7, 24, 20, 11),
+  };
+
+  it('returns null when now is before any of today\'s prayers has started', () => {
+    const now = new Date(2026, 7, 24, 0, 0);
+    expect(selectCurrentPrayer(times, now)).toBeNull();
+  });
+
+  it('returns Fajr once its time has started but Dhuhr has not', () => {
+    const now = new Date(2026, 7, 24, 5, 0);
+    expect(selectCurrentPrayer(times, now)).toEqual<Prayer>({ name: 'Fajr', time: times.Fajr });
+  });
+
+  it('returns Maghrib exactly at Maghrib\'s scheduled time', () => {
+    const now = new Date(times.Maghrib);
+    expect(selectCurrentPrayer(times, now)).toEqual<Prayer>({ name: 'Maghrib', time: times.Maghrib });
+  });
+
+  it('returns Isha once it is the most recently started prayer of the day', () => {
+    const now = new Date(2026, 7, 24, 23, 0);
+    expect(selectCurrentPrayer(times, now)).toEqual<Prayer>({ name: 'Isha', time: times.Isha });
+  });
+
+  it('performs no I/O — it is a plain synchronous function, not a Promise', () => {
+    const now = new Date(2026, 7, 24, 5, 0);
+    const result = selectCurrentPrayer(times, now);
     expect(result).not.toBeInstanceOf(Promise);
   });
 });
