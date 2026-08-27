@@ -4,22 +4,37 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import PrayerTimesScreen from './src/ui/screens/PrayerTimesScreen';
 import RemindersScreen from './src/ui/screens/RemindersScreen';
+import HistoryDashboardScreen from './src/ui/screens/HistoryDashboardScreen';
 
-type Tab = 'prayerTimes' | 'reminders';
+type Tab = 'prayerTimes' | 'reminders' | 'history';
+
+const SCREENS: Record<Tab, React.ComponentType> = {
+  prayerTimes: PrayerTimesScreen,
+  reminders: RemindersScreen,
+  history: HistoryDashboardScreen,
+};
+
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'prayerTimes', label: 'Prayer Times' },
+  { key: 'reminders', label: 'Reminders' },
+  { key: 'history', label: 'History' },
+];
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('prayerTimes');
+  const ActiveScreen = SCREENS[tab];
 
   return (
     <View style={styles.container}>
-      <View style={styles.screen}>{tab === 'prayerTimes' ? <PrayerTimesScreen /> : <RemindersScreen />}</View>
+      <View style={styles.screen}>
+        <ActiveScreen />
+      </View>
       <View style={styles.tabBar}>
-        <Pressable style={styles.tab} onPress={() => setTab('prayerTimes')}>
-          <Text style={[styles.tabLabel, tab === 'prayerTimes' && styles.tabLabelActive]}>Prayer Times</Text>
-        </Pressable>
-        <Pressable style={styles.tab} onPress={() => setTab('reminders')}>
-          <Text style={[styles.tabLabel, tab === 'reminders' && styles.tabLabelActive]}>Reminders</Text>
-        </Pressable>
+        {TABS.map(({ key, label }) => (
+          <Pressable key={key} style={styles.tab} onPress={() => setTab(key)}>
+            <Text style={[styles.tabLabel, tab === key && styles.tabLabelActive]}>{label}</Text>
+          </Pressable>
+        ))}
       </View>
       <StatusBar style="auto" />
     </View>

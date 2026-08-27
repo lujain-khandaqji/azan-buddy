@@ -5,6 +5,7 @@ import {
   selectNextPrayer,
   selectCurrentPrayer,
   getWindowCloseTime,
+  __resetPrayerTimesCacheForTests,
   PrayerTimes,
   Prayer,
 } from './prayerTimesService';
@@ -52,6 +53,7 @@ function mockFetchOnce(body: unknown, ok = true) {
 
 describe('getPrayerTimes', () => {
   beforeEach(() => {
+    __resetPrayerTimesCacheForTests();
     globalThis.fetch = jest.fn();
   });
 
@@ -158,10 +160,58 @@ describe('getPrayerTimes', () => {
 
     await expect(getPrayerTimes()).rejects.toThrow();
   });
+
+  it('caches results so the same city/date/method/country is only fetched once from Aladhan', async () => {
+    mockFetchOnce(mockAladhanResponse());
+    const date = new Date(2026, 8, 10);
+
+    const first = await getPrayerTimes('Amman', date, 4, 'Jordan');
+    const second = await getPrayerTimes('Amman', date, 4, 'Jordan');
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(second).toEqual(first);
+  });
+
+  it('dedupes concurrent requests for the same city/date into a single fetch', async () => {
+    mockFetchOnce(mockAladhanResponse());
+    const date = new Date(2026, 8, 11);
+
+    const [first, second] = await Promise.all([
+      getPrayerTimes('Amman', date, 4, 'Jordan'),
+      getPrayerTimes('Amman', date, 4, 'Jordan'),
+    ]);
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(second).toEqual(first);
+  });
+
+  it('fetches independently for different dates — the cache key includes the date', async () => {
+    mockFetchOnce(mockAladhanResponse());
+    mockFetchOnce(mockAladhanResponse());
+
+    await getPrayerTimes('Amman', new Date(2026, 8, 12), 4, 'Jordan');
+    await getPrayerTimes('Amman', new Date(2026, 8, 13), 4, 'Jordan');
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not cache a failed request, so a later call can retry', async () => {
+    mockFetchOnce({}, false);
+    const date = new Date(2026, 8, 14);
+
+    await expect(getPrayerTimes('Amman', date, 4, 'Jordan')).rejects.toThrow();
+
+    mockFetchOnce(mockAladhanResponse());
+    const result = await getPrayerTimes('Amman', date, 4, 'Jordan');
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(result.Fajr).toBeInstanceOf(Date);
+  });
 });
 
 describe('getNextPrayer', () => {
   beforeEach(() => {
+    __resetPrayerTimesCacheForTests();
     globalThis.fetch = jest.fn();
   });
 

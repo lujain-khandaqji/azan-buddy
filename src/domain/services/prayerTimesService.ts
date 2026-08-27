@@ -65,11 +65,29 @@ function parseLocalTime(hhmm: string, referenceDate: Date): Date {
   );
 }
 
-export async function getPrayerTimes(
-  city: string = DEFAULT_CITY,
-  date: Date = new Date(),
-  method: number = DEFAULT_METHOD,
-  country: string = DEFAULT_COUNTRY
+// Keyed by city|date|method|country. Caches the in-flight Promise (not just the
+// resolved value) so both concurrent and repeated requests for the same key
+// reuse the same fetch — this is what a burst of getDashboardEntries's ~31
+// same-city requests, or simply revisiting a screen, needs to avoid re-hitting
+// Aladhan. Caching indefinitely is correct: a given date's prayer times are a
+// fixed calculation that never changes. A failed request is evicted so a later
+// call can still retry — no automatic retry is performed here.
+const prayerTimesCache = new Map<string, Promise<PrayerTimes>>();
+
+function cacheKey(city: string, date: Date, method: number, country: string): string {
+  return `${city}|${formatDateForAladhan(date)}|${method}|${country}`;
+}
+
+/** Test-only: clears the cache so each test starts isolated. */
+export function __resetPrayerTimesCacheForTests(): void {
+  prayerTimesCache.clear();
+}
+
+async function fetchPrayerTimesFromAladhan(
+  city: string,
+  date: Date,
+  method: number,
+  country: string
 ): Promise<PrayerTimes> {
   const dateSegment = formatDateForAladhan(date);
   const url =
@@ -99,6 +117,29 @@ export async function getPrayerTimes(
   }
 
   return result;
+}
+
+export async function getPrayerTimes(
+  city: string = DEFAULT_CITY,
+  date: Date = new Date(),
+  method: number = DEFAULT_METHOD,
+  country: string = DEFAULT_COUNTRY
+): Promise<PrayerTimes> {
+  const key = cacheKey(city, date, method, country);
+  const cached = prayerTimesCache.get(key);
+  if (cached) {
+    return cached;
+  }
+
+  const promise = fetchPrayerTimesFromAladhan(city, date, method, country);
+  prayerTimesCache.set(key, promise);
+
+  try {
+    return await promise;
+  } catch (e) {
+    prayerTimesCache.delete(key);
+    throw e;
+  }
 }
 
 /**
