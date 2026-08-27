@@ -2,25 +2,39 @@ import React, { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { PRAYER_NAMES, PrayerName } from '../../domain/services/prayerTimesService';
-import { ReminderScope } from '../../domain/services/reminderService';
+import { ReminderRule, ReminderScope } from '../../domain/services/reminderService';
 import { useReminders } from '../hooks/useReminders';
 
 const SCOPES: ReminderScope[] = ['today', 'always'];
 const SCOPE_LABELS: Record<ReminderScope, string> = { today: 'Today', always: 'Always' };
 
 export default function RemindersScreen() {
-  const { reminders, loading, error, saving, saveError, createReminder, cancelReminder } = useReminders();
+  const { reminders, loading, error, saving, saveError, createReminder, updateReminder, cancelReminder } =
+    useReminders();
 
   const [selectedPrayer, setSelectedPrayer] = useState<PrayerName>(PRAYER_NAMES[0]);
   const [offsetText, setOffsetText] = useState('');
   const [scope, setScope] = useState<ReminderScope>('today');
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const offsetMinutes = Number(offsetText);
   const isOffsetValid = offsetText.trim().length > 0 && Number.isInteger(offsetMinutes) && offsetMinutes > 0;
 
+  function handleEdit(reminder: ReminderRule) {
+    setEditingId(reminder.id);
+    setSelectedPrayer(reminder.prayerName);
+    setOffsetText(String(reminder.offsetMinutes));
+    setScope(reminder.scope);
+  }
+
   async function handleSave() {
     if (!isOffsetValid || saving) return;
-    await createReminder(selectedPrayer, offsetMinutes, scope);
+    if (editingId) {
+      await updateReminder(editingId, selectedPrayer, offsetMinutes, scope);
+      setEditingId(null);
+    } else {
+      await createReminder(selectedPrayer, offsetMinutes, scope);
+    }
     setOffsetText('');
   }
 
@@ -64,7 +78,11 @@ export default function RemindersScreen() {
         disabled={!isOffsetValid || saving}
         style={[styles.saveButton, (!isOffsetValid || saving) && styles.saveButtonDisabled]}
       >
-        {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>Save Reminder</Text>}
+        {saving ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.saveButtonText}>{editingId ? 'Save Changes' : 'Save Reminder'}</Text>
+        )}
       </Pressable>
       {saveError && <Text style={styles.errorText}>{saveError}</Text>}
 
@@ -85,9 +103,14 @@ export default function RemindersScreen() {
                   {reminder.offsetMinutes} min before • {SCOPE_LABELS[reminder.scope]}
                 </Text>
               </View>
-              <Pressable onPress={() => cancelReminder(reminder.id)}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </Pressable>
+              <View style={styles.rowActions}>
+                <Pressable onPress={() => handleEdit(reminder)}>
+                  <Text style={styles.editText}>Edit</Text>
+                </Pressable>
+                <Pressable onPress={() => cancelReminder(reminder.id)}>
+                  <Text style={styles.cancelText}>Cancel</Text>
+                </Pressable>
+              </View>
             </View>
           ))}
         </View>
@@ -134,5 +157,7 @@ const styles = StyleSheet.create({
   },
   rowTitle: { fontSize: 16, fontWeight: '600', color: '#333' },
   rowSubtitle: { fontSize: 13, color: '#777', marginTop: 2 },
+  rowActions: { flexDirection: 'row', gap: 16 },
+  editText: { color: '#0f766e', fontSize: 14, fontWeight: '600' },
   cancelText: { color: '#b00020', fontSize: 14, fontWeight: '600' },
 });

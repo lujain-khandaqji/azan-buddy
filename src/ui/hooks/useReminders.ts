@@ -3,6 +3,7 @@ import {
   createReminder as createReminderService,
   listReminders,
   cancelReminder as cancelReminderService,
+  updateReminder as updateReminderService,
   ReminderRule,
   ReminderScope,
 } from '../../domain/services/reminderService';
@@ -15,6 +16,7 @@ export interface RemindersState {
   saving: boolean;
   saveError: string | null;
   createReminder: (prayer: PrayerName, offsetMinutes: number, scope: ReminderScope) => Promise<void>;
+  updateReminder: (id: string, prayer: PrayerName, offsetMinutes: number, scope: ReminderScope) => Promise<void>;
   cancelReminder: (id: string) => Promise<void>;
 }
 
@@ -66,6 +68,19 @@ export function useReminders(): RemindersState {
     }
   }
 
+  async function updateReminder(id: string, prayer: PrayerName, offsetMinutes: number, scope: ReminderScope) {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await updateReminderService(id, prayer, offsetMinutes, scope);
+      await refresh();
+    } catch (e) {
+      setSaveError(describeError(e, 'Failed to update reminder'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function cancelReminder(id: string) {
     try {
       await cancelReminderService(id);
@@ -75,5 +90,5 @@ export function useReminders(): RemindersState {
     }
   }
 
-  return { reminders, loading, error, saving, saveError, createReminder, cancelReminder };
+  return { reminders, loading, error, saving, saveError, createReminder, updateReminder, cancelReminder };
 }

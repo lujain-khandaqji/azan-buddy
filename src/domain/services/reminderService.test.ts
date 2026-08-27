@@ -3,7 +3,13 @@ import * as SQLite from 'expo-sqlite';
 
 import { PrayerTimes } from './prayerTimesService';
 import { toDateISO } from './prayerLogService';
-import { createReminder, listReminders, cancelReminder, materializeReminderForDate } from './reminderService';
+import {
+  createReminder,
+  listReminders,
+  cancelReminder,
+  updateReminder,
+  materializeReminderForDate,
+} from './reminderService';
 
 // expo-sqlite and expo-notifications are native modules and can't run inside
 // Jest, so both are mocked. The fake DB below implements the same
@@ -60,6 +66,11 @@ function createFakeDb() {
         } else if (op === 'DELETE') {
           const [id] = params as [string];
           rules = rules.filter((r) => r.id !== id);
+        } else if (op === 'UPDATE') {
+          const [prayerName, offsetMinutes, scope, id] = params as [string, number, string, string];
+          rules = rules.map((r) =>
+            r.id === id ? { ...r, prayer_name: prayerName, offset_minutes: offsetMinutes, scope } : r
+          );
         }
       } else if (isInstances(sql)) {
         if (op === 'INSERT') {
@@ -223,5 +234,41 @@ describe('reminderService', () => {
     // Re-materializing today must still not create a second instance for today.
     await materializeReminderForDate(rule, todayISO);
     expect(mockedNotifications.scheduleNotificationAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it('updates a reminder rule: preserves its id, cancels the old scheduled notification, and schedules a new one', async () => {
+    const rule = await createReminder('Dhuhr', 15, 'today'); // schedules 'notif-1'
+
+    mockedNotifications.scheduleNotificationAsync.mockResolvedValueOnce('notif-2');
+    const updated = await updateReminder(rule.id, 'Asr', 20, 'always');
+
+    expect(updated.id).toBe(rule.id);
+    expect(updated.prayerName).toBe('Asr');
+    expect(updated.offsetMinutes).toBe(20);
+    expect(updated.scope).toBe('always');
+    expect(mockedNotifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('notif-1');
+    expect(mockedNotifications.scheduleNotificationAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it("schedules the updated reminder at the new prayer's azan time minus the new offset", async () => {
+    const rule = await createReminder('Dhuhr', 15, 'today');
+    mockedNotifications.scheduleNotificationAsync.mockResolvedValueOnce('notif-2');
+
+    await updateReminder(rule.id, 'Asr', 20, 'always');
+
+    const secondCall = mockedNotifications.scheduleNotificationAsync.mock.calls[1][0] as any;
+    const expectedFireAt = new Date(2026, 7, 26, 15, 26); // Asr 15:46 - 20 min
+    expect(secondCall.trigger.date.getTime()).toBe(expectedFireAt.getTime());
+  });
+
+  it('reflects the update in listReminders, still as a single entry for the same id', async () => {
+    const rule = await createReminder('Dhuhr', 15, 'today');
+    mockedNotifications.scheduleNotificationAsync.mockResolvedValueOnce('notif-2');
+
+    await updateReminder(rule.id, 'Asr', 20, 'always');
+    const reminders = await listReminders();
+
+    expect(reminders).toHaveLength(1);
+    expect(reminders[0]).toEqual({ id: rule.id, prayerName: 'Asr', offsetMinutes: 20, scope: 'always' });
   });
 });

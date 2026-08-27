@@ -175,18 +175,48 @@ export async function listReminders(): Promise<ReminderRule[]> {
   return rows.map(toRule);
 }
 
-export async function cancelReminder(id: string): Promise<void> {
-  const db = await getDb();
-
+async function cancelInstancesForRule(db: Awaited<ReturnType<typeof getDb>>, ruleId: string): Promise<void> {
   const instances = await db.getAllAsync<ReminderInstanceRow>(
     'SELECT id, rule_id, date_iso, fire_at, notification_id FROM reminder_instances WHERE rule_id = ?',
-    [id]
+    [ruleId]
   );
 
   for (const instance of instances) {
     await Notifications.cancelScheduledNotificationAsync(instance.notification_id);
   }
 
-  await db.runAsync('DELETE FROM reminder_instances WHERE rule_id = ?', [id]);
+  await db.runAsync('DELETE FROM reminder_instances WHERE rule_id = ?', [ruleId]);
+}
+
+export async function cancelReminder(id: string): Promise<void> {
+  const db = await getDb();
+  await cancelInstancesForRule(db, id);
   await db.runAsync('DELETE FROM reminder_rules WHERE id = ?', [id]);
+}
+
+/**
+ * Updates an existing reminder rule in place (same id), cancelling whatever
+ * notification instances it had and scheduling a fresh one for today under the
+ * new prayer/offset/scope — reuses materializeReminderForDate rather than
+ * duplicating the permission-check/schedule logic.
+ */
+export async function updateReminder(
+  id: string,
+  prayer: PrayerName,
+  offsetMinutes: number,
+  scope: ReminderScope
+): Promise<ReminderRule> {
+  const db = await getDb();
+
+  await cancelInstancesForRule(db, id);
+
+  await db.runAsync(
+    'UPDATE reminder_rules SET prayer_name = ?, offset_minutes = ?, scope = ? WHERE id = ?',
+    [prayer, offsetMinutes, scope, id]
+  );
+
+  const rule: ReminderRule = { id, prayerName: prayer, offsetMinutes, scope };
+  await materializeReminderForDate(rule, toDateISO(new Date()));
+
+  return rule;
 }
