@@ -5,19 +5,22 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import PrayerTimesScreen from './src/ui/screens/PrayerTimesScreen';
 import RemindersScreen from './src/ui/screens/RemindersScreen';
 import HistoryDashboardScreen from './src/ui/screens/HistoryDashboardScreen';
+import CoachingScreen from './src/ui/screens/CoachingScreen';
 
-type Tab = 'prayerTimes' | 'reminders' | 'history';
+type Tab = 'prayerTimes' | 'reminders' | 'history' | 'coaching';
 
 const SCREENS: Record<Tab, React.ComponentType> = {
   prayerTimes: PrayerTimesScreen,
   reminders: RemindersScreen,
   history: HistoryDashboardScreen,
+  coaching: CoachingScreen,
 };
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'prayerTimes', label: 'Prayer Times' },
   { key: 'reminders', label: 'Reminders' },
   { key: 'history', label: 'History' },
+  { key: 'coaching', label: 'Coaching' },
 ];
 
 export default function App() {

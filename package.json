@@ -10,6 +10,7 @@
     "test": "jest --watchAll"
   },
   "dependencies": {
+    "@google/genai": "^2.19.0",
     "expo": "~54.0.36",
     "expo-location": "~19.0.8",
     "expo-notifications": "~0.32.17",
