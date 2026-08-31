@@ -31,6 +31,9 @@ export default function PrayerTimesScreen() {
     confirmCurrentPrayer,
     loading,
     error,
+    coachingReply,
+    coachingSending,
+    coachingError,
   } = usePrayerTimesScreen();
 
   if (loading) {
@@ -94,6 +97,18 @@ export default function PrayerTimesScreen() {
       )}
       {confirmError && <Text style={styles.confirmErrorText}>{confirmError}</Text>}
 
+      {(coachingSending || coachingReply) && (
+        <View style={styles.nafyCard}>
+          <Text style={styles.nafyLabel}>Nafy</Text>
+          {coachingSending && !coachingReply ? (
+            <ActivityIndicator color="#0f766e" size="small" />
+          ) : (
+            coachingReply && <Text style={styles.nafyText}>{coachingReply.text}</Text>
+          )}
+        </View>
+      )}
+      {coachingError && <Text style={styles.confirmErrorText}>{coachingError}</Text>}
+
       <View style={styles.list}>
         {PRAYER_NAMES.map((name: PrayerName) => {
           const isNext = nextPrayer?.name === name;
@@ -150,6 +165,17 @@ const styles = StyleSheet.create({
   confirmButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '700' },
   confirmErrorText: { color: '#b00020', fontSize: 13, marginBottom: 12 },
   missedBadge: { color: '#b00020', fontSize: 13, fontWeight: '600', marginBottom: 8 },
+  nafyCard: {
+    backgroundColor: '#f0fdfa',
+    borderWidth: 1,
+    borderColor: '#ccfbf1',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  nafyLabel: { color: '#0f766e', fontSize: 12, fontWeight: '700', marginBottom: 4 },
+  nafyText: { color: '#134e4a', fontSize: 15, lineHeight: 20 },
   list: { borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#eee' },
   row: {
     flexDirection: 'row',

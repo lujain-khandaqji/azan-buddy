@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   getPrayerTimes,
   selectNextPrayer,
@@ -17,6 +17,19 @@ import {
   computeStatus,
   PrayerLogStatus,
 } from '../../domain/services/prayerLogService';
+import { getCoachingResponse } from '../../domain/services/coachingService';
+import {
+  detectNewCoachingTriggers,
+  seedTriggeredKeys,
+  triggerKey,
+  CoachingTrigger,
+} from '../../domain/services/coachingTriggerService';
+
+export interface CoachingReply {
+  prayerName: PrayerName;
+  status: CoachingTrigger['status'];
+  text: string;
+}
 
 export interface PrayerTimesScreenState {
   prayerTimes: PrayerTimes | null;
@@ -32,6 +45,9 @@ export interface PrayerTimesScreenState {
   confirmCurrentPrayer: () => Promise<void>;
   loading: boolean;
   error: string | null;
+  coachingReply: CoachingReply | null;
+  coachingSending: boolean;
+  coachingError: string | null;
 }
 
 function describeError(e: unknown, fallback = 'Failed to load prayer times'): string {
@@ -79,6 +95,46 @@ export function usePrayerTimesScreen(): PrayerTimesScreenState {
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [coachingReply, setCoachingReply] = useState<CoachingReply | null>(null);
+  const [coachingSending, setCoachingSending] = useState(false);
+  const [coachingError, setCoachingError] = useState<string | null>(null);
+
+  const triggeredKeysRef = useRef<Set<string>>(new Set());
+  const hasSeededTriggeredKeysRef = useRef(false);
+  const coachingQueueRef = useRef<CoachingTrigger[]>([]);
+  const processingCoachingRef = useRef(false);
+
+  function enqueueCoachingTriggers(triggers: CoachingTrigger[]) {
+    if (triggers.length === 0) return;
+    coachingQueueRef.current.push(...triggers);
+    processCoachingQueue();
+  }
+
+  async function processCoachingQueue() {
+    if (processingCoachingRef.current) return;
+    processingCoachingRef.current = true;
+    setCoachingSending(true);
+
+    try {
+      while (coachingQueueRef.current.length > 0) {
+        const next = coachingQueueRef.current.shift()!;
+        try {
+          const text = await getCoachingResponse({
+            type: 'status',
+            prayerName: next.prayerName,
+            status: next.status,
+          });
+          setCoachingReply({ prayerName: next.prayerName, status: next.status, text });
+          setCoachingError(null);
+        } catch (e) {
+          setCoachingError(describeError(e, "Failed to get Nafy's coaching reply"));
+        }
+      }
+    } finally {
+      processingCoachingRef.current = false;
+      setCoachingSending(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -141,6 +197,21 @@ export function usePrayerTimesScreen(): PrayerTimesScreenState {
         );
       }
       setStatusByPrayer(statuses);
+
+      const dateISO = toDateISO(now);
+      if (!hasSeededTriggeredKeysRef.current) {
+        // First status snapshot of the session: record whatever is already
+        // late/qada/missed as triggered without firing coaching for it, so only
+        // transitions that happen from here on auto-trigger.
+        hasSeededTriggeredKeysRef.current = true;
+        triggeredKeysRef.current = seedTriggeredKeys(dateISO, statuses);
+      } else {
+        const newTriggers = detectNewCoachingTriggers(dateISO, statuses, triggeredKeysRef.current);
+        for (const t of newTriggers) {
+          triggeredKeysRef.current.add(triggerKey(dateISO, t.prayerName, t.status));
+        }
+        enqueueCoachingTriggers(newTriggers);
+      }
     }
 
     tick();
@@ -180,5 +251,8 @@ export function usePrayerTimesScreen(): PrayerTimesScreenState {
     confirmCurrentPrayer,
     loading,
     error,
+    coachingReply,
+    coachingSending,
+    coachingError,
   };
 }
