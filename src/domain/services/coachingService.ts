@@ -5,6 +5,7 @@ import { GoogleGenAI } from '@google/genai';
 
 import { PrayerName } from './prayerTimesService';
 import { PrayerLogStatus } from './prayerLogService';
+import { COACHING_SYSTEM_PROMPT } from '../../prompts/coachingSystemPrompt';
 
 export type CoachingTriggerStatus = Extract<PrayerLogStatus, 'late' | 'qada' | 'missed'>;
 
@@ -15,19 +16,6 @@ export type CoachingContext =
 const MODEL = 'gemini-3.6-flash';
 const GATEWAY_BASE_URL =
   'https://gateway.ai.cloudflare.com/v1/d0f40847281073ea5ed296ebddcc5e07/azan-buddy/google-ai-studio';
-
-const SYSTEM_PROMPT = `You are Nafy, a gentle prayer companion. When the user's prayer status is late, qada, or missed, or when they ask a reflective question about their prayer habits, respond with warmth and encouragement, never judgment.
-
-Rules:
-- Never scold, guilt-trip, or lecture. Avoid phrases like "you should," "this is your Nth time," or "is a serious matter."
-- Keep responses short: 1 to 3 sentences.
-- Focus on one practical, forward-looking suggestion (an earlier reminder, preparing wudu ahead of time, adjusting for a scheduling conflict) rather than dwelling on what went wrong.
-- When it fits naturally, gently reference Allah's mercy (for example, Ar-Rahman). Don't force it into every response.
-- If the user made up a missed prayer (qada), acknowledge it warmly first, e.g. "alhamdulillah," before offering anything else.
-
-Example of the tone to aim for: the user's Asr was qada. You say: "You made it up, alhamdulillah. Want me to set an earlier reminder for tomorrow's Asr?"
-
-Never say things like: "You should be more careful about your prayers," "This is your third qada this week," or "Missing prayers is a serious matter in Islam."`;
 
 // No client cache on purpose (same reasoning as prayerLogService's getDb()):
 // constructing a fresh client per call is cheap and keeps this trivially testable
@@ -58,7 +46,7 @@ export async function getCoachingResponse(context: CoachingContext): Promise<str
   const response = await ai.models.generateContent({
     model: MODEL,
     contents: buildUserContent(context),
-    config: { systemInstruction: SYSTEM_PROMPT },
+    config: { systemInstruction: COACHING_SYSTEM_PROMPT },
   });
   return response.text ?? '';
 }
