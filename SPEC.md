@@ -1,6 +1,7 @@
 # azan-buddy — Architecture Spec
 
-`azan-buddy` is a voice-first Islamic prayer companion built with Expo (SDK 54) + TypeScript.
+`azan-buddy` is a voice-first Islamic prayer companion built with Expo + TypeScript (started on
+SDK 54, upgraded to SDK 57 before Checkpoint 3).
 The project ships in three checkpoints, **voice-last**:
 
 1. **Checkpoint 1** (tap-and-type) — prayer times, countdown, confirmation, reminders, history.
@@ -225,78 +226,87 @@ screen's foreground hook.
 
 ---
 
-## 3. Voice Wrapping Strategy (Checkpoint 3)
+## 3. Voice Wrapping Strategy (Checkpoint 3) — as implemented
 
-**Principle.** The Gemini Live session is not where the app's logic lives — it's a thin
-function-calling layer over the same services built in Checkpoints 1–2. Checkpoint 2's tuned
-system prompt (Section 2) is folded directly into the Live session's system instructions, so the
-Live model *is* the coach in voice mode — `coachingService.generateCoachingMessage` itself is
-**not** exposed as a tool (that would mean one Gemini call talking to another).
+> Status: implemented in code on `feat/voice-hello-world`, covered by unit tests, **not yet tested on
+> a real device**. The original plan's tool list and lifecycle are superseded by this section.
 
-**Tool table** (near 1:1 wrappers, declared with JSON schemas, each calling one existing function):
+**Principle (unchanged).** The Gemini Live session is a thin function-calling layer over the
+Checkpoint 1–2 services. `src/domain/services/*` was **not modified** for voice.
 
-| Gemini Live tool | Wraps |
-|---|---|
-| `get_next_prayer` | `prayerTimesService.getNextPrayer` |
-| `get_today_status` | `prayerStatusService.getDailyStatus` |
-| `get_compliance_summary` | `historyService.getComplianceSummary` |
-| `get_qada_backlog` | `historyService.getQadaBacklog` |
-| `confirm_prayer` | `prayerStatusService.confirmPrayer` |
-| `log_qada` | `prayerStatusService.confirmQada` |
-| `mark_missed` | `prayerStatusService.markMissed` |
-| `set_reminder` | `reminderService.createReminderRule` |
-| `cancel_reminder` | `reminderService.cancelReminderInstance` / `cancelAllForDate` |
-| `get_recent_coaching_context` | thin read of `coaching_events` |
+**Runtime topology.**
 
-**What stays app-side vs. what the Live session owns.** The app owns: all data (SQLite), all
-notification scheduling, all status computation, and the coaching prompt content. The Live
-session owns: turn-taking, audio capture/playback, language understanding, and deciding *when*
-to call a tool. LiveKit is the audio/data transport between the device and Gemini Live; the
-Cloudflare AI Gateway sits in front of the Live API connection exactly as it does for the
-Checkpoint‑2 text calls, via the same `gatewayConfig.ts`.
+- **Phone:** an Android custom development client (`expo-dev-client`; LiveKit needs native WebRTC,
+  so Expo Go cannot run it). It joins a LiveKit room using a token from the LiveKit Cloud sandbox
+  token server.
+- **Agent:** `agent/`, a separate Node package using `@livekit/agents` +
+  `@livekit/agents-plugin-google`. LiveKit dispatches it into the room by name (`nafy`). It runs a
+  Gemini Live realtime model (`agent/src/config.ts`: model, voice, mode). The Google API key lives
+  only on the agent side and is never shipped in the app.
+- **Tools:** the agent declares the function tools (Zod schemas) and forwards each call to the phone
+  over **LiveKit RPC**, because SQLite, notifications and location live on the phone. The phone's
+  `src/voice/voiceTools.ts` validates the arguments, calls the existing service, and returns one
+  spoken English sentence.
 
-**Arabic + English.** The `language` field already added to `app_settings` in Checkpoint 1
-configures the Live session's expected input/output language at connect time — no schema change
-needed in Checkpoint 3.
+**Tool table.** These are the four tools required for Checkpoint 3, each a thin wrapper:
+
+| Tool | Calls (unchanged) | Spoken result, e.g. |
+|---|---|---|
+| `getPrayerTimes(prayer?, day?)` | `locationService.resolveCurrentCity`, `prayerTimesService.getPrayerTimes`, `selectNextPrayer`, `getTimeUntil` | "You have 42 minutes until Asr. It's at 3:00 PM today." |
+| `createReminder(prayer, offsetMinutes, scope?)` | `reminderService.createReminder`, the same SQLite and notification path as the Reminders screen | "Done. I'll remind you 10 minutes before Asr today." |
+| `logPrayer(prayer)` | `prayerLogService.logPrayer`, then `computeStatus` / `getWindowCloseTime` for the status phrase | "Logged Asr on time, alhamdulillah." |
+| `getCoachingAdvice(question? \| prayer+status)` | `coachingService.getCoachingResponse`, with the unchanged Checkpoint 2 prompt, via the Cloudflare AI Gateway | the coaching text, relayed |
+
+Deviation from the original plan: coaching is exposed as a tool rather than folded into the Live
+system prompt. This keeps the exact Checkpoint 2 prompt and its Cloudflare AI Gateway routing as
+the single source of coaching behaviour. The Live model only delivers the result.
+
+**UI refresh after voice writes.** After a mutating tool (`createReminder`, `logPrayer`) the hook
+bumps `dataVersion`, and `App.tsx` remounts the visible screen, which re-reads the same services.
+No event bus was needed.
+
+**Arabic + English.** No language is pinned in the Live session. The agent instructions say to
+reply in the language the user just spoke, which allows switching mid-session. Tool results are
+English sentences that the model restates in the user's language without changing facts. No Arabic
+replies are hard-coded.
+
+**Cloudflare AI Gateway.** Checkpoint 2 coaching traffic (and therefore `getCoachingAdvice`) still
+goes through the gateway unchanged. Routing the Gemini Live websocket through the gateway is
+optional (`GEMINI_LIVE_GATEWAY_URL` in `agent/.env.local`) and unverified. It is off by default so
+the hello-world loop has as few unknowns as possible.
 
 ---
 
-## 4. Voice Session Lifecycle State Machine (Checkpoint 3)
+## 4. Voice Session Lifecycle State Machine (Checkpoint 3) — as implemented
 
-States:
-
-- **Idle** — no LiveKit room, no Gemini Live session; entry point, and where the app returns to
-  after every session ends.
-- **Connecting** — mic permission confirmed, LiveKit room join + Gemini Live handshake in
-  progress; `app_settings.language` is read here to configure the session.
-- **Active** — persistent duplex audio session is live. Not modeled as separate top-level states,
-  but surfaced to the UI as sub-indicators: *Listening*, *Model speaking*, *Tool executing*
-  (a tool call/response happens over the data channel without leaving Active).
-- **Reconnecting** — a network drop occurred while Active; the app attempts to resume the same
-  logical session.
-- **Error** — an unrecoverable failure (permission denied, gateway/auth error, reconnect
-  exhausted); surfaced to the user with a retry action.
-- **Ending** — user stopped the session, or the app lost foreground/background; LiveKit room and
-  Live session are closed gracefully.
-
-Transitions:
+Push-to-talk replaces the original Idle/Active/Reconnecting/Error/Ending design.
+`src/voice/voiceSessionMachine.ts` is a pure reducer, and `src/voice/useVoiceSession.ts` performs
+the side effects for each state.
 
 | From | Event | To |
 |---|---|---|
-| Idle | user taps "start conversation" | Connecting |
-| Connecting | handshake succeeds | Active |
-| Connecting | handshake fails | Error |
-| Active | network drop detected | Reconnecting |
-| Reconnecting | resume succeeds | Active |
-| Reconnecting | resume fails / times out | Error |
-| Active | user taps "end" / app backgrounds | Ending |
-| Ending | cleanup complete | Idle |
-| Error | user taps "retry" | Connecting |
-| Error | user dismisses | Idle |
+| disconnected | `FOREGROUND` (app start / return), `MIC_TAP` (manual retry) | connecting |
+| connecting | `CONNECTED` | connected_muted |
+| connected_muted | `MIC_TAP` | connected_listening |
+| connected_listening | `MIC_TAP`, `END_OF_TURN` (`lk.agent.state` → thinking/speaking) | connected_muted |
+| any | `BACKGROUND`, `CONNECTION_LOST` (LiveKit gave up reconnecting) | disconnected |
 
-A tool call/response (e.g. `confirm_prayer` invoked mid-conversation) is an event *within*
-Active, not a state transition — the underlying service call and its `domainEvents` emit (Section
-1) happen exactly as they would from a UI button tap.
+Side effects:
+
+- **connecting:** create one transport, fetch a token for a uniquely named room, and connect.
+- **connected_\*:** `setMicrophoneEnabled(listening)` on the same room.
+- **disconnected:** remove listeners, disconnect the room, and stop the audio session.
+
+Safety properties, covered by `useVoiceSession.test.ts` where deterministic:
+
+- One connection per foreground. A mic tap never reconnects.
+- State lives in `useReducer`/`useRef` at the app root, so it survives re-renders.
+- Events from a torn-down transport are ignored.
+- Mutating tools use `onDuplicate: 'reject'` in the agent, and `logPrayer` is also protected by the
+  table's UNIQUE constraint.
+- No custom retry loops: LiveKit owns reconnection.
+- When the phone leaves, the agent session closes with it. Each foreground uses a new room, so no
+  rooms accumulate.
 
 ---
 
