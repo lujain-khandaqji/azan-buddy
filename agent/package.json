@@ -1,0 +1,25 @@
+{
+  "name": "azan-buddy-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Nafy LiveKit voice agent (Gemini Live) for azan-buddy",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/agent.ts dev",
+    "start": "tsx src/agent.ts start",
+    "download-files": "tsx src/agent.ts download-files",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@livekit/agents": "^1.9.1",
+    "@livekit/agents-plugin-google": "^1.9.1",
+    "@livekit/rtc-node": "^1.1.0",
+    "dotenv": "^18.0.5",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
