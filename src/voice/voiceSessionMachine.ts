@@ -29,10 +29,3 @@ export function nextVoiceState(state: VoiceState, event: VoiceEvent): VoiceState
       return state === 'disconnected' ? 'connecting' : state;
   }
 }
-
-export const VOICE_STATE_LABELS: Record<VoiceState, string> = {
-  disconnected: 'disconnected',
-  connecting: 'connecting',
-  connected_muted: 'muted',
-  connected_listening: 'listening',
-};

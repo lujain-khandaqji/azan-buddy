@@ -8,7 +8,8 @@
     "dev": "tsx src/agent.ts dev",
     "start": "tsx src/agent.ts start",
     "download-files": "tsx src/agent.ts download-files",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/language.test.ts"
   },
   "dependencies": {
     "@livekit/agents": "^1.9.1",

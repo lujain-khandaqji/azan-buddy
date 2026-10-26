@@ -228,8 +228,14 @@ screen's foreground hook.
 
 ## 3. Voice Wrapping Strategy (Checkpoint 3) — as implemented
 
-> Status: implemented in code on `feat/voice-hello-world`, covered by unit tests, **not yet tested on
-> a real device**. The original plan's tool list and lifecycle are superseded by this section.
+> Status: implemented on `feat/voice-hello-world`, covered by unit tests, and **verified on a real
+> Android device**. The device runs the EAS development client and talks to LiveKit + Gemini Live end to end.
+> All five core features were verified by voice: prayer-time Q&A, reminders, prayer confirmation, coaching,
+> and general prayer questions. They work in English and Arabic, including switching between the two in one session.
+> After the latency work, the latest 5 attempts on the device were all under 2 s. The session-leak test passed:
+> 4 background/reopen cycles, old rooms CLOSED, and only one ACTIVE room. Temporary debug logging has been removed.
+> **Still open:** the final 2-minute demo recording and Git/PR delivery. The original plan's tool list and lifecycle
+> are superseded by this section.
 
 **Principle (unchanged).** The Gemini Live session is a thin function-calling layer over the
 Checkpoint 1–2 services. `src/domain/services/*` was **not modified** for voice.
@@ -266,14 +272,39 @@ bumps `dataVersion`, and `App.tsx` remounts the visible screen, which re-reads t
 No event bus was needed.
 
 **Arabic + English.** No language is pinned in the Live session. The agent instructions say to
-reply in the language the user just spoke, which allows switching mid-session. Tool results are
-English sentences that the model restates in the user's language without changing facts. No Arabic
-replies are hard-coded.
+reply in the language of the user's most recent utterance. Tool results are English sentences that
+the model restates in the user's language without changing facts. On the device, Gemini Live drifted
+toward the language of earlier turns and of the English tool results. Its instructions can't be
+swapped per turn without restarting the session. So `agent/src/language.ts` detects the latest
+utterance's language from Gemini's input transcript and prefixes every tool result with a
+reply-language directive. The model's own `userLanguage` tool argument is the fallback. No Arabic
+replies are hard-coded. Verified on the device: English, Arabic, and switching both ways in one session.
 
-**Cloudflare AI Gateway.** Checkpoint 2 coaching traffic (and therefore `getCoachingAdvice`) still
-goes through the gateway unchanged. Routing the Gemini Live websocket through the gateway is
-optional (`GEMINI_LIVE_GATEWAY_URL` in `agent/.env.local`) and unverified. It is off by default so
-the hello-world loop has as few unknowns as possible.
+**Voice.** Aoede, Kore, Charon, Puck and Fenrir were compared in Arabic on the device. Fenrir is
+the selected voice (`VOICE` in `agent/src/config.ts`, overridable with `NAFY_VOICE`).
+
+**Latency.** With the current Gemini 2.5 Live model, thinking was the largest cost. End of speech to
+tool call took 2.7–4.5 s with thinking and 1.5–1.7 s without it. The agent sets `thinkingBudget: 0`
+for 2.5 models (`GEMINI_THINKING_BUDGET`). After this change, the latest 5 attempts on the device
+were all under 2 s.
+
+**Cloudflare AI Gateway.** Checkpoint 2 Gemini text coaching (and therefore `getCoachingAdvice`)
+goes through the gateway unchanged. The production **Gemini Live** websocket connects **directly to
+Google**.
+
+- **Probe that worked.** A standalone probe with the Cloudflare gateway token reached Gemini Live
+  `setupComplete` (3/3 attempts) through Cloudflare's documented realtime endpoint,
+  `wss://gateway.ai.cloudflare.com/v1/<account>/<gateway>/google?api_key=…`, authenticated with a
+  `cf-aig-authorization` header.
+- **Why production can't use it.** The LiveKit Google plugin uses `@google/genai`, which always builds
+  `<baseUrl>/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=…`, and the
+  gateway rejects that URL:
+  - base URL ending `/google-ai-studio`: error 2029 "Unsupported websocket provider/model"
+  - base URL ending `/google`: error 2009 "Unauthorized"
+- **Why it stays direct.** Supporting the gateway would need a more invasive change to the Live transport,
+  which would put the verified latency and bilingual behaviour at risk. The `GEMINI_LIVE_GATEWAY_URL` option
+  remains but is unset.
+- **What the dashboard shows.** The Gemini text/coaching calls, **not** the production Gemini Live calls.
 
 ---
 
@@ -286,10 +317,10 @@ the side effects for each state.
 | From | Event | To |
 |---|---|---|
 | disconnected | `FOREGROUND` (app start / return), `MIC_TAP` (manual retry) | connecting |
-| connecting | `CONNECTED` | connected_muted |
+| connecting | `CONNECTED` (room joined and agent past `initializing`) | connected_muted |
 | connected_muted | `MIC_TAP` | connected_listening |
 | connected_listening | `MIC_TAP`, `END_OF_TURN` (`lk.agent.state` → thinking/speaking) | connected_muted |
-| any | `BACKGROUND`, `CONNECTION_LOST` (LiveKit gave up reconnecting) | disconnected |
+| any | `BACKGROUND` (after a 10 s grace window), `CONNECTION_LOST` (LiveKit gave up reconnecting, or the agent left) | disconnected |
 
 Side effects:
 

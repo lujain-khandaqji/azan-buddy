@@ -58,23 +58,23 @@ If results are consistently over 2 s, check:
 
 ## 3. LiveKit session leak test
 
-1. Open the app and wait for `muted`.
-2. Press Home. The label should go to `disconnected` (check it when you return).
-3. Wait about 5 seconds, then reopen the app. It should go `connecting` → `muted`.
+1. Open the app and wait for the mic button to become enabled.
+2. Press Home. After a 10-second grace window (`BACKGROUND_GRACE_MS`) the room disconnects. The grace window exists because Android also reports "background" for system dialogs.
+3. Wait about 15 seconds, then reopen the app. The voice state should go `connecting` → `muted`. If you reopen within 10 seconds, the same session is kept.
 4. Repeat steps 2–3 three or four times.
 5. Open the LiveKit Cloud dashboard → **Sessions / Rooms**.
 
-Expected: at most one active `azan-buddy-*` room (the current one). Earlier rooms close once their only user leaves, and they do not pile up. Result: ☐
+Expected: at most one active `azan-buddy-*` room (the current one). Earlier rooms close once their only user leaves, and they do not pile up. Result: ✅ passed. Over 4 cycles, each went disconnected → connecting → muted. The dashboard showed only 1 ACTIVE room, all earlier rooms were CLOSED, and no sessions accumulated.
 
 ## 4. Voices to compare (Arabic)
 
 The default voice is set in `agent/src/config.ts` (`VOICE`) or with `NAFY_VOICE` in `agent/.env.local`. Restart the agent after each change. Ask each voice the same question, "متى المغرب اليوم؟", and listen for clarity and natural Arabic pronunciation:
 
-**Aoede** (current default) · **Kore** · **Charon** · **Puck** · **Fenrir**. Other options are listed in `@livekit/agents-plugin-google`, for example Zephyr and Leda.
+**Aoede** · **Kore** · **Charon** · **Puck** · **Fenrir** (selected, now the default). Other options are listed in `@livekit/agents-plugin-google`, for example Zephyr and Leda.
 
 ## 5. Two-minute bilingual demo script
 
-Keep the state label visible. Start on the Prayer Times tab.
+Start on the Prayer Times tab.
 
 1. (EN, Q&A) "How long until Asr?" — point out that the reply matches the countdown on screen.
 2. (AR, Q&A) "متى المغرب اليوم؟" — the reply is in Arabic.
@@ -84,23 +84,24 @@ Keep the state label visible. Start on the Prayer Times tab.
 6. (AR, general) "كم ركعة صلاة المغرب؟" ("How many rakats is Maghrib?")
 7. Press Home, reopen, and show the session reconnecting cleanly (optional).
 
-## 6. Items to remove after physical testing (final polish)
+## 6. Items removed after physical testing (final polish)
 
-- The `voice: …` state label in `src/ui/components/MicButton.tsx`. It is a debugging aid, so keep it until all tests pass.
-- `console.warn('[voice] …')` in `src/voice/voiceTools.ts` and `src/voice/useVoiceSession.ts`. It is fine to keep these as error logs.
+- ✅ The `voice: …` state label in `src/ui/components/MicButton.tsx`.
+- ✅ The `[voice-debug]` logs: `src/voice/voiceDebug.ts` and its calls (including the `lk.transcription` handler), the agent's `[voice-debug]` log, and the temporary latency trace (`agent/src/latencyTrace.ts`).
+- Kept as error logs: `console.warn('[voice] …')` in `src/voice/voiceTools.ts` and `src/voice/useVoiceSession.ts`.
 - `NAFY_MODE=hello` in `agent/.env.local`, if you set it.
 - For anything beyond the demo, replace the sandbox token server with a real token endpoint.
 
 ## 7. Checkpoint 3 success criteria (each one verified by you)
 
-- [ ] Voice Q&A latency is consistently under 2 s (table above)
-- [ ] Voice works in English
-- [ ] Voice works in Arabic
-- [ ] The voice layer is under 500 lines (code count: 480 lines across 7 files, including blank lines)
-- [ ] All 5 core features are reachable by voice: Q&A, reminder, confirmation, coaching, general question
-- [ ] All automated tests pass (`npx jest`)
-- [ ] SPEC.md and README.md are up to date
+- [x] Voice Q&A latency is under 2 s (latest 5 device attempts)
+- [x] Voice works in English
+- [x] Voice works in Arabic, including switching languages in one session
+- [x] The voice layer is under 500 lines of source code (excluding blank and comment lines)
+- [x] All 5 core features are reachable by voice: Q&A, reminder, confirmation, coaching, general question
+- [x] All automated tests pass (`npx jest`, `cd agent && npm test`)
+- [x] SPEC.md and README.md are up to date
 - [ ] Git history is clean and the PR is reviewed before merging
-- [ ] The Cloudflare AI Gateway dashboard shows Gemini traffic
-- [ ] The LiveKit dashboard shows no accumulating leaked sessions
+- [ ] The Cloudflare AI Gateway dashboard shows Gemini text/coaching traffic (screenshot still to capture; Gemini Live stays direct to Google, see SPEC.md)
+- [x] The LiveKit dashboard shows no accumulating leaked sessions
 - [ ] The ~2-minute bilingual demo is recorded

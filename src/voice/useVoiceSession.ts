@@ -5,9 +5,17 @@ import { nextVoiceState, VoiceEvent } from './voiceSessionMachine';
 import { createLiveKitTransport, VoiceTransport, VoiceTransportFactory } from './voiceTransport';
 
 /**
+ * Android reports AppState 'background' whenever any activity covers ours — including
+ * the system permission and location-settings dialogs a voice tool (or the first mic
+ * tap) can open mid-turn. Only a background that outlasts this window tears the room
+ * down; returning to 'active' within it keeps the same session.
+ */
+export const BACKGROUND_GRACE_MS = 10_000;
+
+/**
  * Owns the one voice connection for the app. The room stays connected (muted)
  * between turns; a mic tap only toggles the published mic track. Backgrounding
- * tears the room down, foregrounding connects a fresh one. Reconnects after
+ * past the grace window tears the room down, foregrounding connects a fresh one. Reconnects after
  * network blips are LiveKit's own — there is no custom retry loop here.
  */
 export function useVoiceSession(createTransport: VoiceTransportFactory = createLiveKitTransport) {
@@ -17,12 +25,15 @@ export function useVoiceSession(createTransport: VoiceTransportFactory = createL
   const transportRef = useRef<VoiceTransport | null>(null);
 
   useEffect(() => {
+    let backgroundTimer: ReturnType<typeof setTimeout> | undefined;
     if (AppState.currentState !== 'background') dispatch('FOREGROUND');
     const sub = AppState.addEventListener('change', (s: AppStateStatus) => {
+      clearTimeout(backgroundTimer);
       if (s === 'active') dispatch('FOREGROUND');
-      else if (s === 'background') dispatch('BACKGROUND');
+      else if (s === 'background') backgroundTimer = setTimeout(() => dispatch('BACKGROUND'), BACKGROUND_GRACE_MS);
     });
     return () => {
+      clearTimeout(backgroundTimer);
       sub.remove();
       transportRef.current?.disconnect();
       transportRef.current = null;

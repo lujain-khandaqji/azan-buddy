@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react-native';
 import { AppState, AppStateStatus } from 'react-native';
 
-import { useVoiceSession } from './useVoiceSession';
+import { BACKGROUND_GRACE_MS, useVoiceSession } from './useVoiceSession';
 import { VoiceTransport, VoiceTransportHandlers } from './voiceTransport';
 
 // The real transport pulls in LiveKit's native modules; the hook only needs the interface.
@@ -38,7 +38,15 @@ async function connected() {
   return hook;
 }
 
+// A real background: the app stays backgrounded past the grace window.
+async function backgroundFully() {
+  await act(async () => appStateListener('background'));
+  await act(async () => jest.advanceTimersByTime(BACKGROUND_GRACE_MS));
+}
+
 beforeEach(() => {
+  jest.useFakeTimers();
+  jest.spyOn(console, 'log').mockImplementation(() => {});
   transports = [];
   Object.defineProperty(AppState, 'currentState', { value: 'active', configurable: true });
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener) => {
@@ -47,7 +55,10 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.useRealTimers();
+  jest.restoreAllMocks();
+});
 
 describe('useVoiceSession', () => {
   it('connects once on start and lands muted', async () => {
@@ -78,6 +89,31 @@ describe('useVoiceSession', () => {
     expect(transports[0].setMicEnabled).toHaveBeenLastCalledWith(false);
   });
 
+  it('END_OF_TURN only mutes: the room stays connected so the tool reply can be spoken', async () => {
+    const { result } = await connected();
+    await act(async () => result.current.toggleMic());
+    await act(async () => transports[0].handlers.onEndOfTurn());
+    await act(async () => transports[0].handlers.onDataChanged()); // tool finishes after the turn
+    await act(async () => jest.advanceTimersByTime(60_000));
+    expect(result.current.state).toBe('connected_muted');
+    expect(transports[0].disconnect).not.toHaveBeenCalled();
+    expect(transports).toHaveLength(1);
+    expect(result.current.dataVersion).toBe(1);
+  });
+
+  it('survives a transient Android pause (permission / location dialog) mid-turn', async () => {
+    const { result } = await connected();
+    await act(async () => result.current.toggleMic());
+    await act(async () => transports[0].handlers.onEndOfTurn());
+    await act(async () => appStateListener('background'));
+    await act(async () => jest.advanceTimersByTime(BACKGROUND_GRACE_MS - 1));
+    await act(async () => appStateListener('active'));
+    await act(async () => jest.advanceTimersByTime(BACKGROUND_GRACE_MS));
+    expect(result.current.state).toBe('connected_muted');
+    expect(transports[0].disconnect).not.toHaveBeenCalled();
+    expect(transports).toHaveLength(1);
+  });
+
   it('keeps the session across re-renders', async () => {
     const { result, rerender } = await connected();
     await rerender({});
@@ -86,9 +122,11 @@ describe('useVoiceSession', () => {
     expect(transports).toHaveLength(1);
   });
 
-  it('disconnects on background and reconnects a fresh room on foreground', async () => {
+  it('disconnects once backgrounded past the grace window and reconnects a fresh room on foreground', async () => {
     const { result } = await connected();
     await act(async () => appStateListener('background'));
+    expect(transports[0].disconnect).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTime(BACKGROUND_GRACE_MS));
     expect(result.current.state).toBe('disconnected');
     expect(transports[0].disconnect).toHaveBeenCalledTimes(1);
 
@@ -101,7 +139,7 @@ describe('useVoiceSession', () => {
 
   it('ignores events from a torn-down transport', async () => {
     const { result } = await renderHook(() => useVoiceSession(factory));
-    await act(async () => appStateListener('background'));
+    await backgroundFully();
     await act(async () => transports[0].resolveConnect());
     await act(async () => transports[0].handlers.onDisconnected());
     expect(result.current.state).toBe('disconnected');

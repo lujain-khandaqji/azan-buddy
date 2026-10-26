@@ -1,13 +1,13 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { VOICE_STATE_LABELS, VoiceState } from '../../voice/voiceSessionMachine';
+import { VoiceState } from '../../voice/voiceSessionMachine';
 
 interface Props {
   state: VoiceState;
   onPress: () => void;
 }
 
-// Push-to-talk control. The state label is a debugging aid for Android testing.
+// Push-to-talk control.
 export default function MicButton({ state, onPress }: Props) {
   const listening = state === 'connected_listening';
   const disabled = state === 'connecting';
@@ -23,9 +23,6 @@ export default function MicButton({ state, onPress }: Props) {
       >
         <Text style={styles.buttonText}>{listening ? 'Stop' : 'Talk to Nafy'}</Text>
       </Pressable>
-      <Text testID="voice-state" style={styles.state}>
-        voice: {VOICE_STATE_LABELS[state]}
-      </Text>
     </View>
   );
 }
@@ -36,5 +33,4 @@ const styles = StyleSheet.create({
   buttonListening: { backgroundColor: '#b91c1c' },
   buttonDisabled: { opacity: 0.5 },
   buttonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  state: { color: '#555', fontSize: 13 },
 });
