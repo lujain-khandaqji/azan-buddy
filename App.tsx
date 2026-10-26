@@ -6,6 +6,8 @@ import PrayerTimesScreen from './src/ui/screens/PrayerTimesScreen';
 import RemindersScreen from './src/ui/screens/RemindersScreen';
 import HistoryDashboardScreen from './src/ui/screens/HistoryDashboardScreen';
 import CoachingScreen from './src/ui/screens/CoachingScreen';
+import MicButton from './src/ui/components/MicButton';
+import { useVoiceSession } from './src/voice/useVoiceSession';
 
 type Tab = 'prayerTimes' | 'reminders' | 'history' | 'coaching';
 
@@ -26,12 +28,15 @@ const TABS: { key: Tab; label: string }[] = [
 export default function App() {
   const [tab, setTab] = useState<Tab>('prayerTimes');
   const ActiveScreen = SCREENS[tab];
+  const voice = useVoiceSession();
 
   return (
     <View style={styles.container}>
       <View style={styles.screen}>
-        <ActiveScreen />
+        {/* Remounting after a voice write makes the screen re-read the same services. */}
+        <ActiveScreen key={voice.dataVersion} />
       </View>
+      <MicButton state={voice.state} onPress={voice.toggleMic} />
       <View style={styles.tabBar}>
         {TABS.map(({ key, label }) => (
           <Pressable key={key} style={styles.tab} onPress={() => setTab(key)}>
