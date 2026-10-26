@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            agent/package-lock.json
+
+      # App (Expo / React Native). Unit tests only — no device, LiveKit, Gemini or Cloudflare calls.
+      - name: Install app dependencies
+        run: npm ci
+      - name: App tests
+        # `npm test` is `jest --watchAll` for local use; CI runs Jest once.
+        run: npx jest --ci
+      - name: App typecheck
+        run: npx tsc --noEmit
+
+      # Voice agent (Node). No credentials needed: it is only type-checked and unit-tested, never run.
+      - name: Install agent dependencies
+        working-directory: agent
+        run: npm ci
+      - name: Agent tests
+        working-directory: agent
+        run: npm test
+      - name: Agent typecheck
+        working-directory: agent
+        run: npm run typecheck
